@@ -1,0 +1,233 @@
+load file
+
+set include BOOL off .
+
+fmod COMMAND-SIGN is
+    sorts @Token@ @Operation@ @Command@ @Input@ .
+    subsort @Token@ < @Operation@ .
+    subsort @Command@ < @Input@ .
+    op _+_ : @Operation@ @Operation@ -> @Operation@ [ctor assoc prec 40] .
+    op _-_ : @Operation@ @Operation@ -> @Operation@ [ctor prec 39] .
+    op _*_ : @Operation@ @Operation@ -> @Operation@ [ctor assoc prec 38] .
+    op _/_ : @Operation@ @Operation@ -> @Operation@ [ctor prec 37] .
+
+    op calculate:_ : @Operation@ -> @Command@ [ctor prec 41] .
+    op exit : -> @Command@ [ctor] .
+endfm
+
+fmod TOKEN is
+    inc QID-LIST .
+    pr COMMAND-SIGN .
+    op token : Qid -> @Token@
+    [special (id-hook Bubble   (1 1)
+           op-hook qidSymbol (<Qids> : ~> Qid))] .
+endfm
+
+set include BOOL on .
+
+fmod META-GRAMMAR is
+    pr META-LEVEL .
+
+    var TL : TermList .
+    var T : Term .
+    var QL : QidList .
+
+    op grammar : -> Module .
+    eq grammar = upModule('TOKEN, false) .
+endfm
+
+mod CALCULATOR is
+    inc STD-STREAM .
+    pr COMMAND-SIGN .
+    pr META-GRAMMAR .
+    pr LEXICAL .
+
+    sorts State .
+
+    op Calculator : -> Cid .
+    op calculator : -> Oid .
+
+    ops initial waiting parsing executing quit : -> State [ctor] .
+
+    op input:_ : TermList -> Attribute [ctor] .
+    op state:_ : State -> Attribute [ctor] .
+
+
+    var RP? : [ResultPair] .
+    var AtS : AttributeSet .
+    var Str : String .
+    var T : Term .
+    var O : Oid .
+
+    rl [initial] : < calculator : Calculator | state: initial, AtS >
+    =>             < calculator : Calculator | state: waiting, AtS >
+                   write(stdout, calculator, "\n\t Calculator\n") [print "1"] .
+
+    rl [waiting] : wrote(calculator, stdout)
+                   < calculator : Calculator | state: waiting, AtS >
+    =>             < calculator : Calculator | state: parsing, AtS >
+                   getLine(stdin, calculator, "> ") [print "2"] .
+
+    crl [parsing] : gotLine(calculator, stdin, Str)
+                    < calculator : Calculator | state: parsing, input: empty, AtS >
+     =>             < calculator : Calculator | state: executing, input: T, AtS >
+     if T := getTerm(metaParse(grammar, tokenize(Str), '@Input@)) [print "3"] .
+
+***(
+    rl [parsing2] : gotLine(calculator, stdin, Str)
+                    < calculator : Calculator | state: parsing, input: empty, AtS >
+    =>              < calculator : Calculator | state: executing, input: 'true.Bool, AtS > [print "3.5"] .
+
+    crl [parsing] : gotLine(calculator, stdin, Str)
+                    < calculator : Calculator | state: parsing, input: empty, AtS >
+     =>             < calculator : Calculator | state: executing, input: 'false.Bool, AtS >
+     if RP? := metaParse(grammar, tokenize(Str), '@Input@) [print "4" RP?] .
+
+    rl [parsing] : < calculator : Calculator | state: parsing, input: empty, AtS >
+    =>             < calculator : Calculator | state: executing, input: 'false.Bool, AtS > [print "5"] .
+)
+endm
+
+set print attribute on .
+
+erew <> < calculator : Calculator | state: initial, input: empty > .
+
+eof
+
+fmod GRAMMAR is
+    pr QID .
+    pr NAT .
+    pr CONVERSION .
+
+    sort Exp .
+
+    op ___ : Qid Qid Qid -> Exp [ctor] .
+
+    vars Q Q' : Qid .
+
+    op qidToNat : Qid -> Nat .
+    eq qidToNat(Q) = rat(string(Q), 10) .
+
+    op calculate : Exp ~> Nat .
+    eq calculate(Q '+ Q') = qidToNat(Q) + qidToNat(Q') .
+    eq calculate(Q '- Q') = qidToNat(Q) - qidToNat(Q') .
+    eq calculate(Q '* Q') = qidToNat(Q) * qidToNat(Q') .
+    eq calculate(Q '/ Q') = qidToNat(Q) / qidToNat(Q') .
+endfm
+
+fmod CONVERTER is
+    pr META-LEVEL .
+    pr CONVERSION .
+
+    op Nat : -> [Nat] .
+    op Qid : -> [Qid] .
+
+    var TL : TermList .
+    var T : Term .
+
+    op extractTerms : Term -> TermList .
+    eq extractTerms('__[TL]) = extractTerms*(TL) .
+    eq extractTerms(T) = T [owise] .
+
+    op extractTerms* : TermList -> TermList .
+    eq extractTerms*(empty) = empty .
+    eq extractTerms*((T, TL)) = extractTerms(T), extractTerms*(TL) .
+
+    op cleanTokens : TermList -> TermList .
+    eq cleanTokens(empty) = empty .
+    eq cleanTokens((T , TL)) = cleanToken(T) , cleanTokens(TL) .
+
+    op cleanToken : Term -> Term .
+    eq cleanToken('token[T]) = T .
+endfm
+
+fmod META-GRAMMAR is
+    pr CONVERTER .
+
+    var TL : TermList .
+    var T : Term .
+    var QL : QidList .
+
+    op tokenGrammar : -> Module .
+    eq tokenGrammar = upModule('TOKEN , false) .
+
+    op grammar : -> Module .
+    eq grammar = upModule('GRAMMAR, false) .
+
+    op generateMetaExp : QidList -> ResultPair .
+    eq generateMetaExp(QL) = metaReduce(grammar, '___[cleanTokens(extractTerms(getTerm(metaParse(tokenGrammar, QL, '@Input@))))]) .
+
+    op calculate : Term -> String .
+    eq calculate(T) = string(downTerm(getTerm(metaReduce(grammar, 'calculate[T])), Nat), 10) .
+endfm
+
+mod CALCULATOR is
+    inc STD-STREAM .
+    pr COMMAND-SIGN .
+    pr META-GRAMMAR .
+    pr LEXICAL .
+
+    sorts Command State Calculator .
+
+    subsorts Calculator < Attribute .
+
+    op Calculator : -> Cid . 
+    op calculator : -> Oid . 
+
+    ops initial waiting parsing executing quit : -> State [ctor] .
+
+    op _,_ : State Command -> Calculator [ctor] .
+
+    var O : Oid .
+    var Str : String .
+    var T : Term .
+
+    rl [initial] :
+    < calculator : Calculator | initial , nothing >
+    =>
+    < calculator : Calculator | waiting , nothing > 
+    write(stdout, calculator, "\n\t Calculator\n") .
+
+    rl [waiting] :
+    < calculator : Calculator | waiting , nothing >
+    => 
+    < calculator : Calculator | parsing , nothing > 
+    getLine(stdin, calculator, "> ") . 
+
+    rl [parsing] :
+    < calculator : Calculator | parsing, nothing > 
+    gotLine(calculator, O, Str) 
+    =>
+    if Str == "quit\n" or Str == "q\n"
+    then  
+        < calculator : Calculator | executing , exit >
+    else 
+        if generateMetaExp(tokenize(Str)) :: ResultPair
+        then
+            < calculator : Calculator | executing , calculate: getTerm(generateMetaExp(tokenize(Str))) >
+        else
+            < calculator : Calculator | executing , invalid >
+        fi
+    fi .
+
+    rl [executingInvalid] :
+    < calculator : Calculator | executing , invalid >
+    => 
+    < calculator : Calculator | waiting, nothing > 
+    write(stdout, calculator, "Invalid input \n") . 
+
+    rl [executingValid] :
+    < calculator : Calculator | executing , calculate: T >
+    => 
+    < calculator : Calculator | waiting, nothing > 
+    write(stdout, calculator, "Result: " + calculate(T) + "\n") . 
+
+    rl [executingQuit] :
+    < calculator : Calculator | executing , exit >
+    => 
+    < calculator : Calculator | quit, exit > 
+    write(stdout, calculator, "Bye\n") . 
+endm
+
+erew < calculator : Calculator | initial , nothing > write(stdout, calculator, "\n") .
+q

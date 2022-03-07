@@ -1,0 +1,155 @@
+load file
+
+set include BOOL off .
+
+fmod COMMAND-SIGN is
+    sorts @Token@ @Bubble@ @Command@ @Input@ .
+    subsort @Command@ < @Input@ .
+
+    op create_; : @Token@ -> @Command@ [ctor] .
+    op order_; : @Bubble@ -> @Command@ [ctor] .
+    op check_; : @Bubble@ -> @Command@ [ctor] .
+    op q : -> @Command@ [ctor] .
+    op __ : @Input@ @Input@ -> @Input@ [ctor assoc] .
+endfm
+set include BOOL on .
+
+fmod GRAMMAR is
+    sorts Name NameList .
+    subsort Name < NameList .
+    op __ : NameList NameList -> NameList [ctor assoc] .
+
+    var NL : NameList .
+    op validList_ : NameList -> Bool .
+    eq validList NL = false [owise] .
+
+endfm
+
+fmod BUBBLE is 
+    inc QID-LIST .
+    pr COMMAND-SIGN .
+
+    op token : Qid -> @Token@
+    [special (id-hook Bubble   (1 1)
+           op-hook qidSymbol (<Qids> : ~> Qid))] .
+
+    op bubble : QidList -> @Bubble@ 
+     [special 
+       (id-hook Bubble     (1 -1) 
+        op-hook qidListSymbol (__ : QidList QidList ~> QidList) 
+        op-hook qidSymbol  (<Qids> : ~> Qid) 
+        id-hook Exclude    (;))] . 
+endfm
+
+mod EXAMPLE is
+    pr META-LEVEL .
+    pr LEXICAL .
+    inc STD-STREAM .
+    pr COMMAND-SIGN .
+
+    sorts State .
+
+    op Example : -> Cid .
+    op example : -> Oid .
+
+    ops initial idle parsing executing quit : -> State [ctor] .
+
+    op input:_ : TermList -> Attribute [ctor] .
+    op state:_ : State -> Attribute [ctor] .
+    op module:_ : FModule -> Attribute [ctor] .
+
+    var H : Header .
+    var IL : ImportList .
+    var SS : SortSet .
+    var SSDS : SubsortDeclSet .
+    var ODS : OpDeclSet .
+    var MAS : MembAxSet .
+    var EqS : EquationSet .
+    var Eq : Equation .
+    var OD : OpDecl .
+    vars T T' : Term .
+    vars FM FM' : FModule .
+    var AtS : AttributeSet .
+    vars Str Result : String .
+
+    op initialModule : -> FModule .
+    eq initialModule = upModule('GRAMMAR, false) .
+
+    op bubble : -> FModule .
+    eq bubble = upModule('BUBBLE, false) .
+
+    op processModule : Term FModule -> FModule .
+    eq processModule(T, FM) = solveBubbles(T, extractNames(T, FM)) .
+
+    op extractNames : Term FModule ~> FModule .
+    eq extractNames('__[T,T'], FM) = extractNames(T', extractNames(T, FM))  .
+    eq extractNames('create_;['token[T]], FM) = addOpDecl(FM, op downTerm(T, 'error) : nil -> 'Name [ctor] .) .
+    eq extractNames(T, FM) = FM [owise] .
+
+    op solveBubbles : Term FModule ~> FModule .
+    eq solveBubbles('__[T,T'], FM) = solveBubbles(T', solveBubbles(T, FM))  .
+    eq solveBubbles('order_;['bubble[T]], FM) = addEquation(FM, eq 'validList_[processTerm(T, FM)] = upTerm(true) [none] .) .
+    eq solveBubbles(T, FM) = FM [owise] .
+
+    op processTerm : Term FModule -> Term .
+    eq processTerm(T, FM) = getTerm(metaParse(FM, downTerm(T, 'error), anyType)) .
+
+    op addOpDecl : FModule OpDecl -> FModule .
+    eq addOpDecl(fmod H is IL sorts SS . SSDS ODS MAS EqS endfm, OD)
+        = fmod H is IL sorts SS . SSDS (OD ODS) MAS EqS endfm .
+
+    op addEquation : FModule Equation -> FModule .
+    eq addEquation(fmod H is IL sorts SS . SSDS ODS MAS EqS endfm, Eq)
+        = fmod H is IL sorts SS . SSDS ODS MAS (EqS Eq) endfm .
+
+    op check : Term FModule -> String .
+    ceq check(T, FM) = "true" 
+        if reduceCheck(processTerm(T, FM), FM) == 'true.Bool .
+    eq check(T, FM) = "false" [owise] .
+
+    op reduceCheck : Term FModule -> Term .
+    eq reduceCheck(T, FM) = getTerm(metaReduce(FM, 'validList_[T])) .
+
+    rl [initial] : < example : Example | state: initial, AtS >
+    =>             < example : Example | state: idle, AtS >
+                    write(stdout, example, "\n\tExample\n") [print "initial"] .
+
+    rl [idle] : wrote(example, stdout)
+                < example : Example | state: idle, AtS >
+    =>          < example : Example | state: parsing, AtS >
+                getLine(stdin, example, "> ") [print "idle"] .
+
+    crl [parsing] : gotLine(example, stdin, Str)
+                    < example : Example | state: parsing, input: empty, AtS >
+     =>             < example : Example | state: executing, input: T, AtS >
+     if T := getTerm(metaParse(bubble, tokenize(Str), '@Input@)) [print "parsing"] .
+
+    crl [parsingError] : gotLine(example, stdin, Str)
+                    < example : Example | state: parsing, input: empty, AtS >
+     =>             < example : Example | state: idle, input: empty, AtS >
+                    write(stdout, example, "Invalid input\n")
+     if metaParse(bubble, tokenize(Str), '@Input@) :: ResultPair == false [print "error"] .
+
+    rl [executingQuit] : < example : Example | state: executing, input: ('q.@Command@) , module: FM,  AtS >
+     => < example : Example | state: quit, input: empty, module: FM,  AtS >  
+        write(stdout, example, "Bye" + "\n") [print "quit"] .
+
+    crl [executingCreate] : < example : Example | state: executing, input: ('create_;[T]), module: FM,  AtS >
+     => < example : Example | state: idle, input: empty, module: FM',  AtS >  
+        write(stdout, example, "Created" + "\n")
+     if FM' := processModule('create_;[T], FM) [print "create"] .
+
+    crl [executingOrder] : < example : Example | state: executing, input: ('order_;[T]), module: FM,  AtS >
+     => < example : Example | state: idle, input: empty, module: FM',  AtS >  
+        write(stdout, example, "Ordered" + "\n")
+     if FM' := processModule('order_;[T], FM) [print "order"] .
+
+    crl [executingCheck] : < example : Example | state: executing, input: ('check_;['bubble[T]]), module: FM,  AtS >
+     => < example : Example | state: idle, input: empty, module: FM,  AtS >  
+        write(stdout, example, "Result: " + Result + "\n")
+     if Result := check(T, FM) [print "check"] .
+
+endm
+--- set print attribute on .
+erew <> < example : Example | state: initial, input: empty, module: initialModule > .
+q 

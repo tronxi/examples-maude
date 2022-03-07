@@ -1,0 +1,114 @@
+load file
+
+set include BOOL off .
+
+fmod COMMAND-SIGN is
+    sorts @Token@ @Operation@ @Command@ @Input@ .
+    subsort @Token@ < @Operation@ .
+    subsort @Command@ < @Input@ .
+    op _+_ : @Operation@ @Operation@ -> @Operation@ [ctor assoc prec 40] .
+    op _-_ : @Operation@ @Operation@ -> @Operation@ [ctor prec 39] .
+    op _*_ : @Operation@ @Operation@ -> @Operation@ [ctor assoc prec 38] .
+    op _/_ : @Operation@ @Operation@ -> @Operation@ [ctor prec 37] .
+
+    op calculate:_ : @Operation@ -> @Command@ [ctor] .
+    op exit : -> @Command@ [ctor] .
+endfm
+
+fmod TOKEN is
+    inc QID-LIST .
+    pr COMMAND-SIGN .
+    op token : Qid -> @Token@
+    [special (id-hook Bubble   (1 1)
+           op-hook qidSymbol (<Qids> : ~> Qid))] .
+endfm
+
+set include BOOL on .
+
+fmod META-GRAMMAR is
+    pr META-LEVEL .
+
+    var TL : TermList .
+    var T : Term .
+    var QL : QidList .
+
+    op grammar : -> Module .
+    eq grammar = upModule('TOKEN, false) .
+endfm
+
+mod CALCULATOR is
+    inc STD-STREAM .
+    pr COMMAND-SIGN .
+    pr META-GRAMMAR .
+    pr LEXICAL .
+    pr CONVERSION .
+
+    sorts State .
+
+    op Calculator : -> Cid .
+    op calculator : -> Oid .
+
+    ops initial waiting parsing executing quit : -> State [ctor] .
+
+    op Qid : -> [Qid] [ctor] .
+    op input:_ : TermList -> Attribute [ctor] .
+    op state:_ : State -> Attribute [ctor] .
+
+    var RP? : [ResultPair] .
+    var AtS : AttributeSet .
+    vars Str Result : String .
+    var T : Term .
+    vars Q Q' : Qid .
+    vars N N' : Nat .
+
+    op qidToNat : Term -> Nat .
+    eq qidToNat(T) = rat(string(downTerm(T, Qid)), 10) .
+
+    rl [initial] : < calculator : Calculator | state: initial, AtS >
+    =>             < calculator : Calculator | state: waiting, AtS >
+                   write(stdout, calculator, "\n\t Calculator\n") [print "1"] .
+
+    rl [waiting] : wrote(calculator, stdout)
+                   < calculator : Calculator | state: waiting, AtS >
+    =>             < calculator : Calculator | state: parsing, AtS >
+                   getLine(stdin, calculator, "> ") [print "2"] .
+
+    crl [parsing] : gotLine(calculator, stdin, Str)
+                    < calculator : Calculator | state: parsing, input: empty, AtS >
+     =>             < calculator : Calculator | state: executing, input: T, AtS >
+     if T := getTerm(metaParse(grammar, tokenize(Str), '@Operation@)) [print "3"] .
+
+     crl [executingSum] : < calculator : Calculator | state: executing, input: ('_+_['token[Q],'token[Q']]), AtS >
+     => < calculator : Calculator | state: waiting, input: empty, AtS >  
+        write(stdout, calculator, "Result: " + Result + "\n")
+     if N := qidToNat(Q)
+     /\ N' := qidToNat(Q')
+     /\ Result := string(N + N', 10) .
+
+     crl [executingSub] : < calculator : Calculator | state: executing, input: ('_-_['token[Q],'token[Q']]), AtS >
+     => < calculator : Calculator | state: waiting, input: empty, AtS >  
+        write(stdout, calculator, "Result: " + Result + "\n")
+     if N := qidToNat(Q)
+     /\ N' := qidToNat(Q')
+     /\ Result := string(sd(N, N'), 10) .
+
+    crl [executingDiv] : < calculator : Calculator | state: executing, input: ('_/_['token[Q],'token[Q']]), AtS >
+     => < calculator : Calculator | state: waiting, input: empty, AtS >  
+        write(stdout, calculator, "Result: " + Result + "\n")
+     if N := qidToNat(Q)
+     /\ N' := qidToNat(Q')
+     /\ Result := string(N / N', 10) .
+
+    crl [executingMult] : < calculator : Calculator | state: executing, input: ('_*_['token[Q],'token[Q']]), AtS >
+     => < calculator : Calculator | state: waiting, input: empty, AtS >  
+        write(stdout, calculator, "Result: " + Result + "\n")
+     if N := qidToNat(Q)
+     /\ N' := qidToNat(Q')
+     /\ Result := string(N * N', 10) .
+
+endm
+
+--- set print attribute on .
+erew <> < calculator : Calculator | state: initial, input: empty > .
+
+q

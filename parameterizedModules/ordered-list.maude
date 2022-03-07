@@ -1,0 +1,55 @@
+fth ORDER is
+    pr BOOL .
+   sort Elt .
+    op _compare_ : Elt Elt -> Bool .
+endfth
+
+view MayorAMenor from ORDER to NAT is
+    sort Elt to Nat .
+    op E:Elt compare E':Elt to term E:Nat < E':Nat .
+endv
+
+view MenorAMayor from ORDER to NAT is
+    sort Elt to Nat .
+    op E:Elt compare E':Elt to term E:Nat >= E':Nat .
+endv
+
+fmod ORDERED-LIST {X :: ORDER } is
+    sort OrderedList{X} .
+    subsort X$Elt < OrderedList{X} .
+
+    op empty : -> OrderedList{X} [ctor] .
+    op __ : OrderedList{X} OrderedList{X} -> OrderedList{X} [ctor assoc id: empty].
+
+    vars E E' : X$Elt .
+    var L : OrderedList{X} .
+
+    op head : OrderedList{X} -> X$Elt .
+    eq head(E L) = E .
+
+    op insert : OrderedList{X} X$Elt -> OrderedList{X} .
+    eq insert (empty, E) = E .
+    eq insert (E L, E') = 
+                        if E compare E'
+                        then E' E L
+                        else E insert(L, E')
+                        fi .
+endfm
+
+fmod MENOR-A-MAYOR-LIST is
+    pr ORDERED-LIST{MenorAMayor} .
+    op test : -> OrderedList{MenorAMayor} .
+    eq test = insert(insert(insert(empty, 3),4),2) .
+endfm
+
+red test .
+
+fmod MAYOR-A-MENOR-LIST is
+    pr ORDERED-LIST{MayorAMenor} .
+    op test : -> OrderedList{MayorAMenor} .
+    eq test = insert(insert(insert(empty, 3),4),2) .
+endfm
+
+red test .
+
+q
