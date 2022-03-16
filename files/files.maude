@@ -1,0 +1,135 @@
+load file
+
+set include BOOL off .
+
+fmod COMMAND-SIGN is
+    sort @Token@ @Input@ @Command@ .
+    subsort @Command@ < @Input@ .
+
+    op open_ : @Token@ -> @Command@ [ctor] .
+    op q : -> @Command@ [ctor] .
+    op __ : @Input@ @Input@ -> @Input@ [ctor assoc] .
+endfm
+
+set include BOOL on .
+
+fmod BUBBLE is 
+    inc QID-LIST .
+    pr COMMAND-SIGN .
+
+    op token : Qid -> @Token@
+    [special (id-hook Bubble   (1 1)
+           op-hook qidSymbol (<Qids> : ~> Qid))] .
+endfm
+
+fmod INPUT is
+    pr STRING .
+    sort Command Input .
+    subsort Command < Input .
+
+    op open_ : String -> Command [ctor] .
+    op q : -> Command [ctor] .
+    op __ : Input Input -> Input [ctor assoc] .
+endfm
+
+fmod PROCESS-TERM is
+    pr META-LEVEL .
+    pr INPUT .
+    pr LEXICAL .
+    pr CONVERSION .
+
+    op error : -> [Qid] [ctor] .
+
+    op bubble : -> FModule .
+    eq bubble = upModule('BUBBLE, false) .
+
+    var S : String .
+    var T : Term .
+
+    op parseTerm : String -> Input .
+    ceq parseTerm(S) = processTerm(T)
+        if T := getTerm(metaParse(bubble, tokenize(S), '@Input@)) .
+
+    op processTerm : Term -> Input .
+    eq processTerm('q.@Command@) = q .
+    eq processTerm('open_['token[T]]) = open qidToString(T) .
+
+    op qidToString : Term -> String .
+    eq qidToString(T) = string(downTerm(T, error)) .
+
+endfm
+
+
+mod FILES is
+    inc STD-STREAM .
+    pr PROCESS-TERM .
+    inc FILE . 
+
+    sorts State .
+
+    ops initial idle parsing opening opened reading write end : -> State [ctor] .
+
+    op Example : -> Cid .
+    op example : -> Oid .
+
+    op state:_ : State -> Attribute [ctor] .
+    op input:_ : Input -> Attribute [ctor] .
+    op file:_ : Oid -> Attribute [ctor] .
+    op texto:_ : String -> Attribute [ctor] .
+
+    var AtS : AttributeSet .
+    var I : Input .
+    var Str : String .
+    var File : Oid .
+    var Text : String .
+    
+    rl [idle] : 
+        < example : Example | state: idle, AtS >
+    =>
+        < example : Example | state: parsing, AtS >
+        getLine(stdin, example, "> ") .
+
+    crl [parsing] :
+        gotLine(example, stdin, Str)
+        < example : Example | state: parsing, AtS >
+     => 
+        < example : Example | state: opening, input: I, AtS >
+        if I := parseTerm(Str) .
+
+    rl [opening] :
+        < example : Example | state: opening, input: open Str , AtS >
+     => 
+        < example : Example | state: opened,  AtS > 
+        openFile(fileManager, example, Str, "r") .
+
+    rl [opened] :
+        openedFile(example, fileManager, File)
+        < example : Example | state: opened, AtS >
+     => 
+        < example : Example | state: reading, file: File, texto: "", AtS >
+        getLine(File, example) .
+
+    rl [reading] :
+        gotLine(example, File, Text) 
+        < example : Example | state: reading, file: File, texto: Str, AtS >
+     => 
+        if Text == ""
+        then  
+            < example : Example | state: write, file: File, texto: Str, AtS > 
+            closeFile(File, example)  
+        else   
+            < example : Example | state: reading, file: File, texto: (Str + Text), AtS > 
+            getLine(File, example)
+        fi . 
+
+    rl [end] :
+        < example : Example | state: write, file: File, texto: Str, AtS >
+    =>
+        < example : Example | state: end, file: File, texto: Str, AtS >
+        write(stdout, example, Str) .
+
+endm
+set print attribute on .
+
+erew <> < example : Example | state: idle > .
+q
